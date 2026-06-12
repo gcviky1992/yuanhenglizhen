@@ -54,6 +54,7 @@
     </section>
     <details class="group" open><summary>A股/ETF</summary><div id="aCards" class="cards"></div></details>
     <details class="group" open><summary>美股/ETF</summary><div id="usCards" class="cards"></div></details>
+    <details class="group" open><summary>BTC 五周期</summary><div id="btcCards" class="cards"></div></details>
   </main>
   <nav class="bottom-bar">
     <button id="saveBtn" class="save">保存</button>
@@ -85,13 +86,14 @@ const pools={
     {market:'美股/ETF',code:'MSFT',name:'微软',type:'股票',cycle:'34'},
     {market:'美股/ETF',code:'AAPL',name:'苹果',type:'股票',cycle:'34'},
     {market:'美股/ETF',code:'AMZN',name:'亚马逊',type:'股票',cycle:'34'}
-  ]
+  ],
+  btc:['21','34','55','89','144'].map(cycle=>({market:'加密/BTC',code:'BTCUSDT',name:`比特币 · ${cycle}周期`,type:'BTC',cycle}))
 };
-let rows={a:[],us:[]}, fetching=false, refreshTimer=null, editingKey='';
+let rows={a:[],us:[],btc:[]}, fetching=false, refreshTimer=null, editingKey='';
 const $=id=>document.getElementById(id);
 function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function makeRows(kind){return pools[kind].map(x=>({date:today(),...x,holding:'否',price:'',high:'',low:'',prevClose:'',prevHigh:'',prevLow:'',prevState:'',phase:'',phaseSource:'',dataDate:'',action:'未操作',amount:'',amountManual:false,dealPrice:'',qty:'',fee:'',note:''}))}
-function allRows(){return [...rows.a,...rows.us]}
+function allRows(){return [...rows.a,...rows.us,...rows.btc]}
 function key(r){return `${r.market}|${r.code}|${r.cycle}`}
 function recordKey(r){return `${r.date}|${key(r)}`}
 function num(v){const n=Number(v);return Number.isFinite(n)?n:NaN}
@@ -137,43 +139,44 @@ function fmt(n){if(!Number.isFinite(n))return'';return Math.abs(n)>=100?n.toFixe
 function avg(a){return a.reduce((s,x)=>s+x,0)/a.length}
 function metric(label,value){return `<div class="metric"><span class="metric-label">${label}</span><span class="metric-value">${esc(value||'-')}</span></div>`}
 function renderCard(r){
-  const s=state(r),sig=signal(r),isEdit=editingKey===key(r),kind=r.market==='A股/ETF'?'a':'us',idx=rows[kind].indexOf(r);
+  const s=state(r),sig=signal(r),isEdit=editingKey===key(r),kind=r.market==='A股/ETF'?'a':r.market==='美股/ETF'?'us':'btc',idx=rows[kind].indexOf(r);
   return `<article class="stock-card ${stateClass(s).replace('state-','')} ${isEdit?'editing':''}" data-kind="${kind}" data-idx="${idx}">
     <div class="card-head"><div><div class="code">${r.code}</div><div class="name">${r.name}</div></div><div><div class="price">${esc(r.price||'-')}</div><div class="data-date">${r.dataDate?'数据日 '+esc(r.dataDate):'暂无行情'}</div></div></div>
-    <div class="metrics">${metric('High34',r.high)}${metric('Low34',r.low)}${metric('是否持仓',r.holding)}</div>
+    <div class="metrics">${metric(`High${r.cycle}`,r.high)}${metric(`Low${r.cycle}`,r.low)}${metric('是否持仓',r.holding)}</div>
     <div class="states"><div class="state-box"><span class="metric-label">昨日状态</span><span class="badge ${stateClass(prevState(r))}">${esc(prevState(r)||'-')}</span></div><div class="state-box"><span class="metric-label">今日状态</span><span class="badge ${stateClass(s)}">${s}</span></div><div class="state-box"><span class="metric-label">操作信号</span><span class="signal ${signalClass(sig)}">${sig}</span></div></div>
     <div class="read-note note">${r.note?esc(r.note):'暂无备注'}</div>
     <div class="card-actions"><button class="ghost" data-edit>${isEdit?'收起编辑':'编辑'}</button><button class="fetch" data-fetch-one>刷新行情</button></div>
     <div class="edit-panel"><div class="form-grid">
       <label class="field">当前价格<input data-field="price" type="number" step="any" inputmode="decimal" value="${esc(r.price)}"></label>
       <label class="field">是否持仓<select data-field="holding"><option ${r.holding==='否'?'selected':''}>否</option><option ${r.holding==='是'?'selected':''}>是</option></select></label>
-      <label class="field">High34<input data-field="high" type="number" step="any" inputmode="decimal" value="${esc(r.high)}"></label>
-      <label class="field">Low34<input data-field="low" type="number" step="any" inputmode="decimal" value="${esc(r.low)}"></label>
+      <label class="field">High${r.cycle}<input data-field="high" type="number" step="any" inputmode="decimal" value="${esc(r.high)}"></label>
+      <label class="field">Low${r.cycle}<input data-field="low" type="number" step="any" inputmode="decimal" value="${esc(r.low)}"></label>
       <label class="field full">备注<textarea data-field="note">${esc(r.note)}</textarea></label>
     </div><div class="edit-actions"><button class="ghost" data-cancel>取消</button><button class="primary" data-save-card>保存</button></div></div>
   </article>`;
 }
 function render(){
-  $('aCards').innerHTML=rows.a.map(renderCard).join('');$('usCards').innerHTML=rows.us.map(renderCard).join('');
+  $('aCards').innerHTML=rows.a.map(renderCard).join('');$('usCards').innerHTML=rows.us.map(renderCard).join('');$('btcCards').innerHTML=rows.btc.map(renderCard).join('');
   const buys=allRows().filter(r=>signal(r)==='买入'),sells=allRows().filter(r=>signal(r)==='卖出'),el=$('overviewText');
   if(!buys.length&&!sells.length){el.className='overview-line';el.textContent='今日无操作，继续遵守纪律。'}
   else{const lines=[];if(buys.length)lines.push(`今日买入信号：${buys.map(r=>r.code+' '+r.name).join('、')}。`);if(sells.length)lines.push(`今日卖出信号：${sells.map(r=>r.code+' '+r.name).join('、')}。`);el.className='overview-line '+(buys.length&&sells.length?'mixed':buys.length?'buy':'sell');el.innerHTML=lines.map(esc).join('<br>')}
 }
-function saveDraft(){localStorage.setItem(DRAFT_KEY,JSON.stringify({version:VERSION,date:today(),rows:{...rows,btc:loadDraftRaw()?.rows?.btc||[]}}))}
+function saveDraft(){localStorage.setItem(DRAFT_KEY,JSON.stringify({version:VERSION,date:today(),rows}))}
 function loadDraftRaw(){try{return JSON.parse(localStorage.getItem(DRAFT_KEY)||'null')}catch{return null}}
-function normalizeRows(saved,kind){const map=new Map((saved||[]).map(r=>[r.code,r]));return pools[kind].map(base=>({date:today(),holding:'否',price:'',high:'',low:'',prevClose:'',prevHigh:'',prevLow:'',prevState:'',phase:'',phaseSource:'',dataDate:'',action:'未操作',amount:'',amountManual:false,dealPrice:'',qty:'',fee:'',note:'',...base,...(map.get(base.code)||{}),date:today(),name:base.name,market:base.market,cycle:'34'}))}
-function load(){const d=loadDraftRaw();rows.a=normalizeRows(d?.rows?.a,'a');rows.us=normalizeRows(d?.rows?.us,'us');const settings=JSON.parse(localStorage.getItem(PHONE_SETTINGS)||'{}');$('refreshSelect').value=String(settings.refresh??30)}
+function normalizeRows(saved,kind){const map=new Map((saved||[]).map(r=>[`${r.code}|${r.cycle}`,r]));return pools[kind].map(base=>({date:today(),holding:'否',price:'',high:'',low:'',prevClose:'',prevHigh:'',prevLow:'',prevState:'',phase:'',phaseSource:'',dataDate:'',action:'未操作',amount:'',amountManual:false,dealPrice:'',qty:'',fee:'',note:'',...base,...(map.get(`${base.code}|${base.cycle}`)||{}),date:today(),name:base.name,market:base.market,cycle:base.cycle}))}
+function load(){const d=loadDraftRaw();rows.a=normalizeRows(d?.rows?.a,'a');rows.us=normalizeRows(d?.rows?.us,'us');rows.btc=normalizeRows(d?.rows?.btc,'btc');const settings=JSON.parse(localStorage.getItem(PHONE_SETTINGS)||'{}');$('refreshSelect').value=String(settings.refresh??30)}
 function loadRecords(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]')}catch{return[]}}
 function saveRecords(records){localStorage.setItem(STORAGE_KEY,JSON.stringify(records))}
 function recordOf(r){return{...r,state:state(r),suggest:signal(r),boundary:valid(r)&&(same(num(r.price),num(r.high))||same(num(r.price),num(r.low)))?'是':'否',savedAt:new Date().toISOString(),version:VERSION}}
 function saveAll(){saveDraft();const map=new Map(loadRecords().map(r=>[recordKey(r),r]));allRows().map(recordOf).forEach(r=>map.set(recordKey(r),r));saveRecords([...map.values()].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||key(a).localeCompare(key(b))));toast(`已保存 ${allRows().length} 条记录`)}
 function calcPath(candles,n=34){let st='元';return candles.map((c,i)=>{if(i<n-1)return{...c,state:'检查数据',highMA:NaN,lowMA:NaN};const p=candles.slice(i-n+1,i+1),h=avg(p.map(x=>x.high)),l=avg(p.map(x=>x.low));if(above(c.close,h))st='亨';else if(below(c.close,l))st='贞';else if(between(c.close,l,h))st=['亨','利'].includes(st)?'利':'元';return{...c,state:st,highMA:h,lowMA:l}})}
-function metrics(candles){const clean=candles.filter(x=>Number.isFinite(x.close)&&Number.isFinite(x.high)&&Number.isFinite(x.low)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));if(clean.length<35)throw Error('日线不足 35 根');const e=calcPath(clean),last=e.at(-1),prev=e.at(-2);return{price:last.close,high:last.highMA,low:last.lowMA,prevClose:prev.close,prevHigh:prev.highMA,prevLow:prev.lowMA,prevState:prev.state,phase:last.state,dataDate:last.date}}
+function metrics(candles,cycle){const n=Number(cycle);const clean=candles.filter(x=>Number.isFinite(x.close)&&Number.isFinite(x.high)&&Number.isFinite(x.low)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));if(clean.length<n+1)throw Error(`日线不足 ${n+1} 根`);const e=calcPath(clean,n),last=e.at(-1),prev=e.at(-2);return{price:last.close,high:last.highMA,low:last.lowMA,prevClose:prev.close,prevHigh:prev.highMA,prevLow:prev.lowMA,prevState:prev.state,phase:last.state,dataDate:last.date}}
 async function fetchJson(url,timeout=10000){const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeout);try{const res=await fetch(url,{cache:'no-store',signal:ctrl.signal});if(!res.ok)throw Error(`HTTP ${res.status}`);return await res.json()}finally{clearTimeout(timer)}}
 function secid(code){return /^[56]/.test(code)?`1.${code}`:`0.${code}`}
 async function eastMoney(id){const j=await fetchJson(`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(id)}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55&klt=101&fqt=1&end=20500101&lmt=220`);const a=j?.data?.klines;if(!a?.length)throw Error('东方财富无行情');return a.map(s=>{const p=s.split(',');return{date:p[0],open:num(p[1]),close:num(p[2]),high:num(p[3]),low:num(p[4])}})}
 async function yahoo(symbol){const j=await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2y&interval=1d&includePrePost=false&events=history`);const r=j?.chart?.result?.[0],q=r?.indicators?.quote?.[0];if(!r?.timestamp||!q)throw Error('Yahoo 无行情');return r.timestamp.map((t,i)=>({date:new Date(t*1000).toISOString().slice(0,10),open:num(q.open?.[i]),high:num(q.high?.[i]),low:num(q.low?.[i]),close:num(q.close?.[i])}))}
-async function fetchRow(r){let candles;if(r.market==='A股/ETF')candles=await eastMoney(secid(r.code));else{try{candles=await yahoo(r.code)}catch{candles=await eastMoney(`105.${r.code}`)}}const m=metrics(candles);Object.assign(r,{price:fmt(m.price),high:fmt(m.high),low:fmt(m.low),prevClose:fmt(m.prevClose),prevHigh:fmt(m.prevHigh),prevLow:fmt(m.prevLow),prevState:m.prevState,phase:m.phase,phaseSource:'history-path',dataDate:m.dataDate})}
+async function binance(symbol,cycle){const limit=Math.max(Number(cycle)+80,220);const a=await fetchJson(`https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=${limit}`);if(!Array.isArray(a)||!a.length)throw Error('Binance 无行情');return a.map(k=>({date:new Date(k[0]).toISOString().slice(0,10),open:num(k[1]),high:num(k[2]),low:num(k[3]),close:num(k[4])}))}
+async function fetchRow(r){let candles;if(r.market==='A股/ETF')candles=await eastMoney(secid(r.code));else if(r.market==='加密/BTC')candles=await binance(r.code,r.cycle);else{try{candles=await yahoo(r.code)}catch{candles=await eastMoney(`105.${r.code}`)}}const m=metrics(candles,r.cycle);Object.assign(r,{price:fmt(m.price),high:fmt(m.high),low:fmt(m.low),prevClose:fmt(m.prevClose),prevHigh:fmt(m.prevHigh),prevLow:fmt(m.prevLow),prevState:m.prevState,phase:m.phase,phaseSource:'history-path',dataDate:m.dataDate})}
 function setStatus(text,kind=''){ $('statusText').textContent=text;$('status').className='status '+kind}
 async function refresh(target){
   if(fetching||document.hidden)return;fetching=true;$('refreshBtn').disabled=true;setStatus('正在刷新行情…','fetching');const list=target?[target]:allRows();let ok=0,fail=0;
@@ -189,12 +192,12 @@ function handleCards(e){const card=e.target.closest('.stock-card');if(!card)retu
   if(e.target.closest('[data-save-card]')){card.querySelectorAll('[data-field]').forEach(el=>r[el.dataset.field]=el.value);r.date=today();editingKey='';saveDraft();render();toast(`${r.code} 已保存`)}
 }
 function toast(text){const t=$('toast');t.textContent=text;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),2200)}
-function exportJson(){saveDraft();const blob=new Blob([JSON.stringify({version:VERSION,exportedAt:new Date().toISOString(),records:loadRecords(),draft:{date:today(),rows:{...rows,btc:loadDraftRaw()?.rows?.btc||[]}}},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`元亨利贞手机版备份_${today()}.json`;a.click();URL.revokeObjectURL(a.href)}
+function exportJson(){saveDraft();const blob=new Blob([JSON.stringify({version:VERSION,exportedAt:new Date().toISOString(),records:loadRecords(),draft:{date:today(),rows}},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`元亨利贞手机版备份_${today()}.json`;a.click();URL.revokeObjectURL(a.href)}
 function importJson(file){const reader=new FileReader();reader.onload=()=>{try{const d=JSON.parse(reader.result);if(Array.isArray(d.records))saveRecords(d.records);if(d.draft?.rows)localStorage.setItem(DRAFT_KEY,JSON.stringify(d.draft));load();render();applyRefreshTimer();toast('导入完成')}catch(e){alert('导入失败：'+e.message)}};reader.readAsText(file)}
-function clearData(){if(confirm('确定清空手机版当前数据和全部历史记录？此操作无法撤销。')){localStorage.removeItem(DRAFT_KEY);localStorage.removeItem(STORAGE_KEY);rows={a:makeRows('a'),us:makeRows('us')};saveDraft();render();toast('数据已清空')}}
-function showRecords(){const list=loadRecords().filter(r=>['A股/ETF','美股/ETF'].includes(r.market)).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.savedAt||'').localeCompare(a.savedAt||''));$('recordsList').innerHTML=list.length?list.map(r=>`<div class="record"><div class="record-top"><span>${esc(r.date)} · ${esc(r.code)} ${esc(r.name)}</span><span class="signal ${signalClass(r.suggest)}">${esc(r.suggest||'-')}</span></div><div class="record-meta">价格 ${esc(r.price||'-')} · High34 ${esc(r.high||'-')} · Low34 ${esc(r.low||'-')} · 持仓 ${esc(r.holding||'-')} · 状态 ${esc(r.state||'-')}<br>${esc(r.note||'无备注')}</div></div>`).join(''):'<div class="empty">暂无保存记录</div>';$('recordsModal').classList.add('open')}
+function clearData(){if(confirm('确定清空手机版当前数据和全部历史记录？此操作无法撤销。')){localStorage.removeItem(DRAFT_KEY);localStorage.removeItem(STORAGE_KEY);rows={a:makeRows('a'),us:makeRows('us'),btc:makeRows('btc')};saveDraft();render();toast('数据已清空')}}
+function showRecords(){const list=loadRecords().filter(r=>['A股/ETF','美股/ETF','加密/BTC'].includes(r.market)).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.savedAt||'').localeCompare(a.savedAt||''));$('recordsList').innerHTML=list.length?list.map(r=>`<div class="record"><div class="record-top"><span>${esc(r.date)} · ${esc(r.code)} ${esc(r.name)}</span><span class="signal ${signalClass(r.suggest)}">${esc(r.suggest||'-')}</span></div><div class="record-meta">价格 ${esc(r.price||'-')} · High${esc(r.cycle)} ${esc(r.high||'-')} · Low${esc(r.cycle)} ${esc(r.low||'-')} · 持仓 ${esc(r.holding||'-')} · 状态 ${esc(r.state||'-')}<br>${esc(r.note||'无备注')}</div></div>`).join(''):'<div class="empty">暂无保存记录</div>';$('recordsModal').classList.add('open')}
 function bind(){
-  $('refreshBtn').onclick=()=>refresh();$('refreshSelect').onchange=applyRefreshTimer;$('saveBtn').onclick=saveAll;$('exportBtn').onclick=exportJson;$('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=e=>{if(e.target.files[0])importJson(e.target.files[0]);e.target.value=''};$('clearBtn').onclick=clearData;$('recordsBtn').onclick=showRecords;$('closeRecords').onclick=()=>$('recordsModal').classList.remove('open');$('recordsModal').onclick=e=>{if(e.target===$('recordsModal'))$('recordsModal').classList.remove('open')};$('aCards').onclick=handleCards;$('usCards').onclick=handleCards;document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Number($('refreshSelect').value)>0)refresh()})
+  $('refreshBtn').onclick=()=>refresh();$('refreshSelect').onchange=applyRefreshTimer;$('saveBtn').onclick=saveAll;$('exportBtn').onclick=exportJson;$('importBtn').onclick=()=>$('importFile').click();$('importFile').onchange=e=>{if(e.target.files[0])importJson(e.target.files[0]);e.target.value=''};$('clearBtn').onclick=clearData;$('recordsBtn').onclick=showRecords;$('closeRecords').onclick=()=>$('recordsModal').classList.remove('open');$('recordsModal').onclick=e=>{if(e.target===$('recordsModal'))$('recordsModal').classList.remove('open')};$('aCards').onclick=handleCards;$('usCards').onclick=handleCards;$('btcCards').onclick=handleCards;document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Number($('refreshSelect').value)>0)refresh()})
 }
 function init(){load();bind();render();applyRefreshTimer();if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./sw.js').catch(console.warn);refresh()}
 init();

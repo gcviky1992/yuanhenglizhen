@@ -1,0 +1,18 @@
+{
+  "name": "元亨利贞",
+  "short_name": "元亨利贞",
+  "description": "元亨利贞交易纪律执行器手机优先版",
+  "start_url": "./phone.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f5f8",
+  "theme_color": "#172233",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

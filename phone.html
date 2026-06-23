@@ -70,7 +70,7 @@
 const STORAGE_KEY='yuanhenglizhen_records_v3';
 const DRAFT_KEY='yuanhenglizhen_draft_v3';
 const PHONE_SETTINGS='yuanhenglizhen_phone_settings_v1';
-const VERSION='phone-1.0.1', CACHE_TTL=5*60*1000, EPS=1e-10, STATES=['元','亨','利','贞'];
+const VERSION='phone-1.0.2', CACHE_TTL=60*1000, EPS=1e-10, STATES=['元','亨','利','贞'];
 const pools={
   a:[
     {market:'A股/ETF',code:'510300',name:'沪深300',type:'ETF',cycle:'34'},
@@ -92,6 +92,9 @@ const pools={
 let rows={a:[],us:[],btc:[]}, fetching=false, refreshTimer=null, editingKey='', candleCache=new Map();
 const $=id=>document.getElementById(id);
 function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function nowMinutes(){const d=new Date();return d.getHours()*60+d.getMinutes()}
+function isWeekday(){const d=new Date().getDay();return d>=1&&d<=5}
+function shouldRequireToday(market){return market==='A股/ETF'&&isWeekday()&&nowMinutes()>=9*60+35}
 function makeRows(kind){return pools[kind].map(x=>({date:today(),...x,holding:'否',price:'',high:'',low:'',prevClose:'',prevHigh:'',prevLow:'',prevState:'',phase:'',phaseSource:'',dataDate:'',action:'未操作',amount:'',amountManual:false,dealPrice:'',qty:'',fee:'',note:''}))}
 function allRows(){return [...rows.a,...rows.us,...rows.btc]}
 function key(r){return `${r.market}|${r.code}|${r.cycle}`}
@@ -179,6 +182,7 @@ function loadScript(url,timeout=12000){
     function done(err){clearTimeout(timer);script.remove();script.onload=script.onerror=null;err?reject(err):resolve()}
     script.onload=()=>done();
     script.onerror=()=>done(Error('脚本加载失败'));
+    script.referrerPolicy='no-referrer-when-downgrade';
     script.src=url;
     document.head.appendChild(script);
   });
@@ -198,6 +202,23 @@ function fetchJsonp(url,cbParam='cb',timeout=12000){
 function secid(code){return /^[56]/.test(code)?`1.${code}`:`0.${code}`}
 async function eastMoney(id){const j=await fetchJsonp(`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(id)}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55&klt=101&fqt=1&end=20500101&lmt=220`);const a=j?.data?.klines;if(!a?.length)throw Error('东方财富无行情');return a.map(s=>{const p=s.split(',');return{date:p[0],open:num(p[1]),close:num(p[2]),high:num(p[3]),low:num(p[4])}})}
 async function sinaA(code){const name=`__sina_a_${Date.now()}_${Math.random().toString(36).slice(2)}`,symbol=`${/^[56]/.test(code)?'sh':'sz'}${code}`;await loadScript(`https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20${name}=/CN_MarketDataService.getKLineData?symbol=${encodeURIComponent(symbol)}&scale=240&ma=no&datalen=220`);const a=window[name];try{delete window[name]}catch{window[name]=undefined}if(!Array.isArray(a)||!a.length)throw Error('新浪A股无行情');return a.map(x=>({date:x.day,open:num(x.open),high:num(x.high),low:num(x.low),close:num(x.close)}))}
+async function tencentARealtime(code){
+  const symbol=`${/^[56]/.test(code)?'sh':'sz'}${code}`;
+  await loadScript(`https://qt.gtimg.cn/q=${symbol}`,12000);
+  const raw=window[`v_${symbol}`];try{delete window[`v_${symbol}`]}catch{window[`v_${symbol}`]=undefined}
+  if(!raw)throw Error('腾讯实时行情无返回');
+  const f=String(raw).split('~'),ts=f[30]||'',date=ts.length>=8?`${ts.slice(0,4)}-${ts.slice(4,6)}-${ts.slice(6,8)}`:'';
+  const close=num(f[3]),prevClose=num(f[4]),open=num(f[5]),high=num(f[33]),low=num(f[34]),time=ts.length>=14?`${ts.slice(8,10)}:${ts.slice(10,12)}:${ts.slice(12,14)}`:'';
+  if(!date||!Number.isFinite(close)||!Number.isFinite(high)||!Number.isFinite(low))throw Error('腾讯实时行情无有效价格');
+  return{date,time,open:Number.isFinite(open)?open:close,prevClose,close,high,low};
+}
+async function sinaAWithRealtime(code){
+  const candles=await sinaA(code),quote=await tencentARealtime(code),last=candles.at(-1);
+  if(!last||quote.date>last.date)candles.push({date:quote.date,open:quote.open,high:quote.high,low:quote.low,close:quote.close});
+  else if(quote.date===last.date)Object.assign(last,{open:Number.isFinite(last.open)?last.open:quote.open,high:Math.max(num(last.high),quote.high),low:Math.min(num(last.low),quote.low),close:quote.close});
+  candles.sourceName='新浪A股日线+腾讯实时';
+  return candles;
+}
 async function yahoo(symbol){const j=await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2y&interval=1d&includePrePost=false&events=history`);const r=j?.chart?.result?.[0],q=r?.indicators?.quote?.[0];if(!r?.timestamp||!q)throw Error('Yahoo 无行情');return r.timestamp.map((t,i)=>({date:new Date(t*1000).toISOString().slice(0,10),open:num(q.open?.[i]),high:num(q.high?.[i]),low:num(q.low?.[i]),close:num(q.close?.[i])}))}
 async function binance(symbol,cycle){const limit=Math.max(Number(cycle)+80,220);const a=await fetchJson(`https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=${limit}`);if(!Array.isArray(a)||!a.length)throw Error('Binance 无行情');return a.map(k=>({date:new Date(k[0]).toISOString().slice(0,10),open:num(k[1]),high:num(k[2]),low:num(k[3]),close:num(k[4])}))}
 async function sinaUS(symbol){const name=`__sina_us_${Date.now()}_${Math.random().toString(36).slice(2)}`;await loadScript(`https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var%20${name}=/US_MinKService.getDailyK?symbol=${encodeURIComponent(symbol)}&___qn=3`);const a=window[name];try{delete window[name]}catch{window[name]=undefined}if(!Array.isArray(a)||!a.length)throw Error('新浪无行情');return a.slice(-260).map(x=>({date:x.d,open:num(x.o),high:num(x.h),low:num(x.l),close:num(x.c)}))}
@@ -206,17 +227,18 @@ async function trySources(tasks){const errors=[];for(const [name,fn] of tasks){t
 async function candlesFor(r){
   const cacheKey=`${r.market}|${r.code}`,cached=candleCache.get(cacheKey);if(cached&&Date.now()-cached.at<CACHE_TTL)return cached.task;
   let task;
-  if(r.market==='A股/ETF')task=trySources([['新浪A股',()=>sinaA(r.code)],['东方财富',()=>eastMoney(secid(r.code))],['Yahoo',()=>yahoo(yahooA(r.code))]]);
+  if(r.market==='A股/ETF')task=trySources([['A股日线+腾讯实时',()=>sinaAWithRealtime(r.code)],['新浪A股日线',()=>sinaA(r.code)],['东方财富',()=>eastMoney(secid(r.code))],['Yahoo',()=>yahoo(yahooA(r.code))]]);
   else if(r.market==='加密/BTC')task=trySources([['Binance',()=>binance(r.code,r.cycle)],['Yahoo',()=>yahoo('BTC-USD')]]);
   else task=trySources([['新浪',()=>sinaUS(r.code)],['东方财富',()=>eastMoney(`105.${r.code}`)],['Yahoo',()=>yahoo(r.code)]]);
   candleCache.set(cacheKey,{at:Date.now(),task});try{return await task}catch(e){candleCache.delete(cacheKey);throw e}
 }
-async function fetchRow(r){const m=metrics(await candlesFor(r),r.cycle);Object.assign(r,{price:fmt(m.price),high:fmt(m.high),low:fmt(m.low),prevClose:fmt(m.prevClose),prevHigh:fmt(m.prevHigh),prevLow:fmt(m.prevLow),prevState:m.prevState,phase:m.phase,phaseSource:'history-path',dataDate:m.dataDate})}
+async function fetchRow(r){const m=metrics(await candlesFor(r),r.cycle);if(shouldRequireToday(r.market)&&m.dataDate!==today())throw Error(`行情未更新到今天：当前数据日 ${m.dataDate}，请稍后重试`);Object.assign(r,{price:fmt(m.price),high:fmt(m.high),low:fmt(m.low),prevClose:fmt(m.prevClose),prevHigh:fmt(m.prevHigh),prevLow:fmt(m.prevLow),prevState:m.prevState,phase:m.phase,phaseSource:'history-path',dataDate:m.dataDate})}
+function markFetchFailed(r,msg){Object.assign(r,{price:'',high:'',low:'',prevClose:'',prevHigh:'',prevLow:'',prevState:'',phase:'',phaseSource:'fetch-failed',dataDate:'刷新失败',fetchError:String(msg||'刷新失败').slice(0,120)})}
 function setStatus(text,kind=''){ $('statusText').textContent=text;$('status').className='status '+kind}
 async function refresh(target){
   if(fetching||document.hidden)return;fetching=true;$('refreshBtn').disabled=true;setStatus('正在刷新行情…','fetching');const list=target?[target]:allRows();let ok=0,fail=0;const errors=[];
-  for(const r of list){try{setStatus(`正在刷新 ${r.code}…`,'fetching');await fetchRow(r);ok++}catch(e){fail++;errors.push(`${r.code}: ${e.message||e}`);console.warn(r.code,e)}render()}
-  saveDraft();fetching=false;$('refreshBtn').disabled=false;$('lastUpdated').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setStatus(`刷新完成：成功 ${ok}，失败 ${fail}${errors.length?'；'+errors.slice(0,2).join('；'):''}`,fail?'error':'');render()
+  for(const r of list){try{setStatus(`正在刷新 ${r.code}…`,'fetching');await fetchRow(r);delete r.fetchError;ok++}catch(e){markFetchFailed(r,e.message||e);fail++;errors.push(`${r.code}: ${e.message||e}`);console.warn(r.code,e)}render()}
+  saveDraft();fetching=false;$('refreshBtn').disabled=false;$('lastUpdated').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setStatus(`${fail?'刷新失败/不完整':'刷新完成'}：成功 ${ok}，失败 ${fail}${errors.length?'；'+errors.slice(0,4).join('；'):''}`,fail?'error':'');render()
 }
 function applyRefreshTimer(){clearInterval(refreshTimer);const sec=Number($('refreshSelect').value);localStorage.setItem(PHONE_SETTINGS,JSON.stringify({refresh:sec}));if(sec>0)refreshTimer=setInterval(()=>refresh(),sec*1000)}
 function rowFromCard(card){return rows[card.dataset.kind][Number(card.dataset.idx)]}

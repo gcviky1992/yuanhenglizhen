@@ -78,7 +78,7 @@
   </section>
 
   <section id="us" class="panel tab-panel hidden">
-    <div class="section-title"><h2>美股/ETF</h2><span class="help">固定池：QQQ、SOXX、NVDA、MSFT、AAPL、AMZN。VOO长期底仓不放入波段交易池。</span></div>
+    <div class="section-title"><h2>美股/ETF</h2><span class="help">固定池：QQQ、NVDA、MSFT、AAPL、GOOGL。VOO长期底仓不放入波段交易池。</span></div>
     <div class="bar"><button class="fetch" data-fetch="us">自动抓取美股</button><button class="ghost" data-fill="us">重置美股记录</button><button data-copy-prev="us">从上一行复制价格</button></div>
     <div class="table-wrap"><table><thead id="usHead"></thead><tbody id="usBody"></tbody></table></div>
   </section>
@@ -173,11 +173,10 @@ const pools={
   ],
   us:[
     {market:'美股/ETF',code:'QQQ',name:'纳指100ETF',type:'ETF',cycle:'34',source:'yahoo'},
-    {market:'美股/ETF',code:'SOXX',name:'半导体ETF',type:'ETF',cycle:'34',source:'yahoo'},
     {market:'美股/ETF',code:'NVDA',name:'英伟达',type:'股票',cycle:'34',source:'yahoo'},
     {market:'美股/ETF',code:'MSFT',name:'微软',type:'股票',cycle:'34',source:'yahoo'},
     {market:'美股/ETF',code:'AAPL',name:'苹果',type:'股票',cycle:'34',source:'yahoo'},
-    {market:'美股/ETF',code:'AMZN',name:'亚马逊',type:'股票',cycle:'34',source:'yahoo'}
+    {market:'美股/ETF',code:'GOOGL',name:'谷歌A',type:'股票',cycle:'34',source:'yahoo'}
   ],
   btc:['21','34','55','89','144'].map(cycle=>({market:'加密/BTC',code:'BTCUSDT',name:'比特币',type:'BTC',cycle,source:'binance'}))
 };
